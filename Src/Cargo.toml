@@ -2,7 +2,7 @@
 name = "com_tomaxikz_databaseseverywhere"
 description = "DatabasesEverywhere database provider, management dashboard, backups, transfers, and data tools for Calagopus."
 authors = ["Tomaxikz"]
-version = "1.0.0"
+version = "1.0.1"
 edition = { workspace = true }
 
 [dependencies]

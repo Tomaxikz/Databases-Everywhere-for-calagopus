@@ -208,7 +208,7 @@ export default function OverviewTab({ server, database, onChanged }: Props) {
         </ServerCan>
       </Group>
 
-      <DatabaseLiveStats instance={live.instance} limits={database.limits} />
+      <DatabaseLiveStats instance={live.instance} samples={live.samples} limits={database.limits} />
 
       {canReadLogs && <DatabaseLiveLogs lines={live.logs} state={live.logStream.state} error={live.logStream.error} />}
     </Stack>

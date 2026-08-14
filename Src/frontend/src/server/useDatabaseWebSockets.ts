@@ -3,6 +3,7 @@ import { getDatabaseRuntime, getDatabaseStatus, mintDatabaseWebSocketToken } fro
 import { normalizeDatabaseMonitoringInstances, scannerRestartBlockedState } from '../api/normalizers.ts';
 import type { DatabaseInstallProgress, DatabaseMonitoringInstance, DatabaseWebSocketChannel } from '../api/types.ts';
 import { isDatabaseProgressActive } from './installProgress.ts';
+import { appendMonitoringSample, type DatabaseMonitoringSample } from './monitoringSamples.ts';
 import { isExpectedDaemonRestart, ReconnectController } from './websocketReconnect.ts';
 
 export type LiveConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'unavailable';
@@ -73,10 +74,11 @@ function useDatabaseSocket(
   database: string,
   channel: DatabaseWebSocketChannel,
   enabled: boolean,
-  onMessage: (payload: Record<string, unknown>) => DatabaseSocketMessageAction | void,
+  onMessage: (payload: Record<string, unknown>, receivedAt: number) => DatabaseSocketMessageAction | void,
   instances?: string[],
   reconnectKey = 0,
   onReconnected?: () => void | Promise<void>,
+  onDisconnected?: (receivedAt: number) => void,
 ) {
   const [state, setState] = useState<LiveConnectionState>(enabled ? 'connecting' : 'unavailable');
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +86,8 @@ function useDatabaseSocket(
   callback.current = onMessage;
   const reconnectedCallback = useRef(onReconnected);
   reconnectedCallback.current = onReconnected;
+  const disconnectedCallback = useRef(onDisconnected);
+  disconnectedCallback.current = onDisconnected;
   const instanceScope = instances ? [...new Set(instances)].sort().join(',') : '';
 
   useEffect(() => {
@@ -132,6 +136,7 @@ function useDatabaseSocket(
         );
         if (disposed || attempt !== generation) return;
 
+        let receivedMessage = false;
         socket = new WebSocket(details.url, ['dbe.jwt', details.token]);
         socket.onopen = () => {
           if (disposed || attempt !== generation) return;
@@ -143,9 +148,11 @@ function useDatabaseSocket(
           setState(reconnects ? 'reconnecting' : 'connecting');
         };
         socket.onmessage = (event) => {
+          const receivedAt = Date.now();
           const payload = parseJson(event.data);
           if (!payload || disposed || attempt !== generation) return;
-          const action = callback.current(payload);
+          receivedMessage = true;
+          const action = callback.current(payload, receivedAt);
           if (action?.reconnect) {
             setError(action.error || 'The live stream ended and is reconnecting.');
             setState('reconnecting');
@@ -173,6 +180,7 @@ function useDatabaseSocket(
             setError(null);
             setState('reconnecting');
           }
+          if (receivedMessage) disconnectedCallback.current?.(Date.now());
           scheduleReconnect();
         };
       } catch (cause) {
@@ -203,27 +211,35 @@ export function useDatabaseMonitoringEvents({
   enabled = true,
   onMessage,
   onReconnected,
+  onDisconnected,
 }: {
   server: string;
   database: string;
   instances?: string[];
   enabled?: boolean;
-  onMessage: (message: MonitoringMessage) => void;
+  onMessage: (message: MonitoringMessage, receivedAt: number) => void;
   onReconnected?: () => void | Promise<void>;
+  onDisconnected?: (receivedAt: number) => void;
 }) {
   return useDatabaseSocket(
     server,
     database,
     'monitor',
     enabled,
-    (raw) =>
-      onMessage({
-        ...raw,
-        ...(Object.hasOwn(raw, 'instances') ? { instances: normalizeDatabaseMonitoringInstances(raw.instances) } : {}),
-      } as MonitoringMessage),
+    (raw, receivedAt) =>
+      onMessage(
+        {
+          ...raw,
+          ...(Object.hasOwn(raw, 'instances')
+            ? { instances: normalizeDatabaseMonitoringInstances(raw.instances) }
+            : {}),
+        } as MonitoringMessage,
+        receivedAt,
+      ),
     instances,
     0,
     onReconnected,
+    onDisconnected,
   );
 }
 
@@ -239,15 +255,19 @@ export function useDatabaseLiveOverview({
   onStatusChange?: (status: string) => void;
 }) {
   const [instance, setInstance] = useState<DatabaseMonitoringInstance | null>(null);
+  const [samples, setSamples] = useState<DatabaseMonitoringSample[]>([]);
   const [progress, setProgress] = useState<DatabaseInstallProgress | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [logReconnectKey, setLogReconnectKey] = useState(0);
+  const instanceRef = useRef<DatabaseMonitoringInstance | null>(null);
   const previousStatus = useRef<string | null>(null);
 
   useEffect(() => {
     setInstance(null);
+    setSamples([]);
     setProgress(null);
     setLogs([]);
+    instanceRef.current = null;
     previousStatus.current = null;
   }, [database]);
 
@@ -260,32 +280,44 @@ export function useDatabaseLiveOverview({
   const monitoring = useDatabaseMonitoringEvents({
     server,
     database,
+    instances: [database],
     onReconnected: refreshAfterReconnect,
-    onMessage: (message) => {
+    onDisconnected: (receivedAt) => {
+      setSamples((current) => appendMonitoringSample(current, { kind: 'gap', receivedAt, instance: null }));
+    },
+    onMessage: (message, receivedAt) => {
       if (message.type !== 'stats') return;
-      const next = message.instances?.find((item) => item.instance_id === database) ?? null;
+      let next = message.instances?.find((item) => item.instance_id === database) ?? null;
       if (next) {
+        const resources = next.resources;
+        if (resources) {
+          const disk = resources.disk;
+          const blocked = scannerRestartBlockedState(
+            disk,
+            instanceRef.current?.resources?.disk.scanner_restart_blocked,
+          );
+          if (blocked !== undefined && blocked !== disk.scanner_restart_blocked) {
+            next = {
+              ...next,
+              resources: {
+                ...resources,
+                disk: { ...disk, scanner_restart_blocked: blocked },
+              },
+            };
+          }
+        }
+
         const nextStatus = next.status ?? null;
         if (logsEnabled && nextStatus === 'running' && previousStatus.current && previousStatus.current !== 'running') {
           reconnectLogs();
         }
         if (nextStatus && nextStatus !== previousStatus.current) onStatusChange?.(nextStatus);
         previousStatus.current = nextStatus;
-        setInstance((current) => {
-          const resources = next.resources;
-          if (!resources) return next;
-          const disk = resources.disk;
-          const blocked = scannerRestartBlockedState(disk, current?.resources?.disk.scanner_restart_blocked);
-          if (blocked === undefined || blocked === disk.scanner_restart_blocked) return next;
-          return {
-            ...next,
-            resources: {
-              ...resources,
-              disk: { ...disk, scanner_restart_blocked: blocked },
-            },
-          };
-        });
-      }
+      } else previousStatus.current = null;
+
+      instanceRef.current = next;
+      setInstance(next);
+      setSamples((current) => appendMonitoringSample(current, { kind: 'stats', receivedAt, instance: next }));
       const reportedProgress = message.install_progress?.find((item) => item.instance_id === database) ?? null;
       setProgress(
         reportedProgress && next?.status && !isDatabaseProgressActive(reportedProgress, next.status)
@@ -318,7 +350,7 @@ export function useDatabaseLiveOverview({
     logReconnectKey,
   );
 
-  return { instance, progress, logs, monitoring, logStream, reconnectLogs };
+  return { instance, samples, progress, logs, monitoring, logStream, reconnectLogs };
 }
 
 export function useImportExportEvents(server: string, database: string, enabled = true) {

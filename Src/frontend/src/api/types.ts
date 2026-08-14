@@ -46,16 +46,17 @@ export interface DatabaseMonitoringInstance {
   status?: string;
   runtime?: string;
   cpu_cores?: number;
-  cpu_usage_percent?: number;
+  cpu_limit_cores?: number | null;
+  cpu_usage_percent?: number | null;
   memory_mib?: number;
-  memory_usage_bytes?: number;
-  memory_limit_bytes?: number;
+  memory_usage_bytes?: number | null;
+  memory_limit_bytes?: number | null;
   disk_mib?: number;
-  disk_limit_bytes?: number;
-  disk_used_bytes?: number;
+  disk_limit_bytes?: number | null;
+  disk_used_bytes?: number | null;
   disk_enforced?: boolean;
-  network_rx_bytes?: number;
-  network_tx_bytes?: number;
+  network_rx_bytes?: number | null;
+  network_tx_bytes?: number | null;
   resources?: DbevResourceReport | null;
   resource_error?: string | null;
 }

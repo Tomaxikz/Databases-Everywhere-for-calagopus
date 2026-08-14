@@ -1885,7 +1885,7 @@ export interface paths {
     };
     /**
      * WebSocket stream of instance resource snapshots.
-     * @description Requires a short-lived WebSocket JWT with monitor:read. Non-browser clients may send Authorization: Bearer <jwt>. Browser clients should use Sec-WebSocket-Protocol with ["dbe.jwt", "<jwt>"]. Query-string tokens are rejected. Messages and frames are limited to 16 KiB. Full snapshots are emitted every 500 ms and include current instance stats plus install_progress entries for create, image-update, and major-upgrade operations. Each instance includes configured limits plus live usage fields: cpu_usage_percent, memory_usage_bytes, memory_limit_bytes, disk_used_bytes, network_rx_bytes, network_tx_bytes, and a resources object matching GET /api/instances/{instance_id}/resources. Network RX/TX are cumulative bytes observed at the authenticated gateway-to-backend boundary since daemon boot.
+     * @description Requires a short-lived WebSocket JWT with monitor:read. Non-browser clients may send Authorization: Bearer <jwt>. Browser clients should use Sec-WebSocket-Protocol with ["dbe.jwt", "<jwt>"]. Query-string tokens are rejected. Messages and frames are limited to 16 KiB. One complete current-state snapshot is emitted every second; missed ticks are skipped. Each instance includes configured limits plus live usage fields: cpu_usage_percent, memory_usage_bytes, memory_limit_bytes, disk_used_bytes, network_rx_bytes, network_tx_bytes, and a resources object matching GET /api/instances/{instance_id}/resources. CPU usage is already a percentage and may exceed 100% for multi-core workloads. Null metrics are temporarily unavailable. Network RX/TX are cumulative since daemon boot.
      */
     get: {
       parameters: {
