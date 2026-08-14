@@ -1,0 +1,36 @@
+[package]
+name = "com_tomaxikz_databaseseverywhere"
+description = "DatabasesEverywhere database provider, management dashboard, backups, transfers, and data tools for Calagopus."
+authors = ["Tomaxikz"]
+version = "1.0.2"
+edition = { workspace = true }
+
+[dependencies]
+shared = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+compact_str = { workspace = true }
+futures-util = { workspace = true }
+garde = { workspace = true }
+indexmap = { workspace = true }
+mongodb = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+qdrant-client = { version = "=1.18.0", default-features = false, features = ["serde"] }
+rustis = { workspace = true, features = ["tokio-rustls"] }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_norway = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+uuid = { workspace = true }
